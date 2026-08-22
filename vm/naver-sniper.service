@@ -1,0 +1,17 @@
+[Unit]
+Description=Naver flight cancellation-seat sniper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/naver-sniper.env
+ExecStart=/opt/naver-sniper/venv/bin/python /opt/naver-sniper/sniper.py
+Restart=always
+RestartSec=5
+User=root
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
