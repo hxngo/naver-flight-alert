@@ -1,17 +1,19 @@
 {
-  "available": false,
-  "total": 0,
-  "min_price": null,
-  "airlines": [],
+  "available": true,
+  "total": 2,
+  "min_price": 198500,
+  "airlines": [
+    "아시아나항공"
+  ],
   "per_dep": {
     "GMP": {
-      "count": 0,
-      "min": 0
+      "count": 2,
+      "min": 198500
     },
     "ICN": {
       "count": 0,
       "min": 0
     }
   },
-  "checked_at_utc": "2026-08-22 09:50:00"
+  "checked_at_utc": "2026-08-22 10:15:30"
 }
