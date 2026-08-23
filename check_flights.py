@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """
-네이버 항공 특정 노선/날짜에 항공권이 풀리는 순간을 감지해 텔레그램으로 알림.
+네이버 항공 다중 노선/날짜(+시간대) 감시 — GitHub Actions에서 주기 실행(백업용, 느림).
+각 타겟이 매진(0편)→좌석 등장(N편)으로 바뀌는 순간만 텔레그램 알림. 중복 방지는 state.json.
 
-기본 감시 대상: 서울(GMP+ICN) -> 제주(CJU) / 편도 / 성인 1명 / 2026-09-24
-표가 아직 안 풀린 상태(flights=[], 최저가 0원)에서 처음 채워지는 순간 알림 1회 발송.
+빠른 취소표 사냥은 vm/sniper.py(초 단위 데몬)가 담당. 이 파일은 VM이 죽어도 돌아가는 느린 백업.
 
 환경변수:
-  TELEGRAM_BOT_TOKEN  (필수) 텔레그램 봇 토큰
-  TELEGRAM_CHAT_ID    (필수) 알림 받을 chat id
-  WATCH_DATE          (선택) YYYYMMDD, 기본 20260924
-  WATCH_DEP           (선택) 콤마구분 출발공항, 기본 "GMP,ICN"
-  WATCH_ARR           (선택) 도착공항, 기본 "CJU"
-  WATCH_ADULT         (선택) 성인 수, 기본 1
+  TELEGRAM_BOT_TOKEN  (필수)
+  TELEGRAM_CHAT_ID    (필수)
+  TARGETS  (선택) 콤마구분. "출발:날짜" 또는 "출발:날짜:시작-끝(HHMM)".
+           예) "GMP:20260924,ICN:20260924,GMP:20260923:1700-2359,ICN:20260923:1700-2359"
+           기본 "GMP:20260924,ICN:20260924"
+  ARR      (선택) 기본 CJU
+  ADULT    (선택) 기본 1
 """
 import json
 import os
@@ -21,35 +22,74 @@ from pathlib import Path
 
 from curl_cffi import requests
 
-DATE = os.environ.get("WATCH_DATE", "20260924")
-DEP_AIRPORTS = [a.strip() for a in os.environ.get("WATCH_DEP", "GMP,ICN").split(",") if a.strip()]
-ARR = os.environ.get("WATCH_ARR", "CJU")
-ADULT = int(os.environ.get("WATCH_ADULT", "1"))
-
+ARR = os.environ.get("ARR", "CJU")
+ADULT = int(os.environ.get("ADULT", "1"))
 STATE_FILE = Path(__file__).with_name("state.json")
 API = "https://flight-api.naver.com/flight/domestic/searchFlights"
 
 
-def booking_url(dep: str) -> str:
-    return f"https://flight.naver.com/flights/domestic/{dep}-{ARR}-{DATE}?adult={ADULT}"
+def parse_targets() -> list[dict]:
+    raw = os.environ.get("TARGETS", "GMP:20260924,ICN:20260924")
+    out = []
+    for tok in raw.split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        parts = [p.strip() for p in tok.split(":")]
+        dep, date = parts[0], parts[1]
+        win = None
+        if len(parts) >= 3 and parts[2]:
+            a, b = parts[2].split("-")
+            win = (a.strip(), b.strip())
+        out.append({"dep": dep, "date": date, "win": win})
+    return out
 
 
-def search(dep: str) -> dict:
-    """네이버 국내선 검색 API 호출 (SSE 응답의 마지막 완료 이벤트를 파싱)."""
+TARGETS = parse_targets()
+
+
+def booking_url(t: dict) -> str:
+    return f"https://flight.naver.com/flights/domestic/{t['dep']}-{ARR}-{t['date']}?adult={ADULT}"
+
+
+def key(t: dict) -> str:
+    w = f"@{t['win'][0]}-{t['win'][1]}" if t.get("win") else ""
+    return f"{t['dep']}-{ARR}-{t['date']}{w}"
+
+
+def target_label(t: dict) -> str:
+    base = f"{t['dep']}→{ARR} {t['date'][4:6]}.{t['date'][6:]}"
+    if t.get("win"):
+        a, b = t["win"]
+        return f"{base} {a[:2]}:{a[2:]}~{b[:2]}:{b[2:]}"
+    return base
+
+
+def won(n) -> str:
+    return f"{n:,}원" if n else "-"
+
+
+def in_window(time_str: str, win) -> bool:
+    if not win:
+        return True
+    return win[0] <= time_str <= win[1]
+
+
+def search(t: dict) -> dict | None:
     body = {
         "type": "domestic", "device": "pc", "fareType": "YC",
-        "itineraries": [{"departureAirport": dep, "arrivalAirport": ARR, "departureDate": DATE}],
+        "itineraries": [{"departureAirport": t["dep"], "arrivalAirport": ARR, "departureDate": t["date"]}],
         "person": {"adult": ADULT, "child": 0, "infant": 0}, "tripType": "OW",
         "flightFilter": {"filter": {"type": "departure"}, "limit": 50, "skip": 0,
-                         "sort": {"segment.departure.time": 1, "minFare": 1}},
+                         "sort": {"minFare": 1, "segment.departure.time": 1}},
         "initialRequest": True,
     }
     headers = {
         "content-type": "application/json", "accept": "text/event-stream",
-        "origin": "https://flight.naver.com", "referer": booking_url(dep),
+        "origin": "https://flight.naver.com", "referer": booking_url(t),
     }
     last_err = None
-    for attempt in range(3):
+    for _ in range(3):
         try:
             r = requests.post(API, json=body, headers=headers, impersonate="chrome", timeout=45)
             if r.status_code not in (200, 201):
@@ -65,47 +105,30 @@ def search(dep: str) -> dict:
         except Exception as e:  # noqa: BLE001
             last_err = repr(e)
             time.sleep(3)
-    raise RuntimeError(f"{dep}->{ARR} search failed: {last_err}")
+    print(f"[warn] {key(t)} failed: {last_err}", file=sys.stderr)
+    return None
 
 
-def collect() -> dict:
-    """모든 출발공항을 조회해 종합. 전부 실패하면 inconclusive=True."""
-    total = 0
-    min_price = None
-    airlines = set()
-    per_dep = {}
-    errors = 0
-    for dep in DEP_AIRPORTS:
-        try:
-            d = search(dep)
-        except Exception as e:  # noqa: BLE001
-            print(f"[warn] {e}", file=sys.stderr)
-            per_dep[dep] = {"error": str(e)}
-            errors += 1
+def summarize(d: dict, t: dict) -> dict:
+    st = d.get("status", {}) or {}
+    cmap = st.get("airlinesCodeMap", {}) or {}
+    items = []
+    for f in d.get("flights", []) or []:
+        seg = f.get("segment", {}) or {}
+        dep = seg.get("departure", {}) or {}
+        tm = dep.get("time", "----")
+        if not in_window(tm, t.get("win")):
             continue
-        st = d.get("status", {}) or {}
-        dep_st = st.get("departure", {}) or {}
-        price = dep_st.get("price", {}) or {}
-        codemap = st.get("airlinesCodeMap", {}) or {}
-        flights = d.get("flights", []) or []
-        n = len(flights)
-        mn = price.get("min") or 0
-        total += n
-        if mn and (min_price is None or mn < min_price):
-            min_price = mn
-        for code in dep_st.get("airlines", []) or []:
-            airlines.add(codemap.get(code, code))
-        per_dep[dep] = {"count": n, "min": mn}
-        time.sleep(0.5)
-    inconclusive = errors == len(DEP_AIRPORTS)
-    return {
-        "available": total > 0,
-        "total": total,
-        "min_price": min_price,
-        "airlines": sorted(airlines),
-        "per_dep": per_dep,
-        "inconclusive": inconclusive,
-    }
+        items.append({
+            "time": tm,
+            "airline": cmap.get(seg.get("airlineCode"), seg.get("airlineCode", "?")),
+            "flightno": seg.get("flightNumber", ""),
+            "fare": f.get("minFare") or 0,
+            "seats": f.get("seatCount"),
+        })
+    items.sort(key=lambda x: x["fare"] or 10**9)
+    mn = next((it["fare"] for it in items if it["fare"]), 0)
+    return {"count": len(items), "min": mn, "items": items}
 
 
 def telegram(text: str) -> None:
@@ -113,8 +136,7 @@ def telegram(text: str) -> None:
     chat = os.environ["TELEGRAM_CHAT_ID"]
     r = requests.post(
         f"https://api.telegram.org/bot{token}/sendMessage",
-        json={"chat_id": chat, "text": text, "parse_mode": "HTML",
-              "disable_web_page_preview": False},
+        json={"chat_id": chat, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True},
         timeout=30,
     )
     if r.status_code != 200:
@@ -122,8 +144,14 @@ def telegram(text: str) -> None:
         r.raise_for_status()
 
 
-def won(n) -> str:
-    return f"{n:,}원" if n else "정보없음"
+def alert_seat(t: dict, s: dict) -> None:
+    lines = [f"🚨 <b>취소표 발견!</b> {target_label(t)}",
+             f"{s['count']}편 · 최저 <b>{won(s['min'])}</b>"]
+    for it in s["items"][:5]:
+        seat = f" (잔여 {it['seats']})" if it.get("seats") is not None else ""
+        lines.append(f"• {it['time'][:2]}:{it['time'][2:]} {it['airline']} {it['flightno']} {won(it['fare'])}{seat}")
+    lines.append(f'👉 <a href="{booking_url(t)}">지금 예약</a>')
+    telegram("\n".join(lines))
 
 
 def load_state() -> dict:
@@ -139,67 +167,46 @@ def save_state(state: dict) -> None:
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def route_label() -> str:
-    return f"{'+'.join(DEP_AIRPORTS)}→{ARR}"
-
-
-def date_label() -> str:
-    return f"{DATE[:4]}.{DATE[4:6]}.{DATE[6:]}"
-
-
 def main() -> int:
-    prev = load_state()
-    first_run = "available" not in prev
-    cur = collect()
+    state = load_state()
+    first_run = not state
     ts = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
 
-    if cur["inconclusive"]:
-        # 네이버 응답을 하나도 못 받음 -> 상태 갱신/알림 없이 종료 (오탐 방지)
+    results = {}
+    for t in TARGETS:
+        d = search(t)
+        if d is None:
+            continue
+        results[key(t)] = (t, summarize(d, t))
+        time.sleep(0.5)
+
+    if not results:
         print(f"[{ts}] inconclusive (all requests failed) — skipping.")
         return 0
 
-    link = booking_url(DEP_AIRPORTS[0])
-
     if first_run:
-        # 최초 실행: 배선 확인용 시작 알림
-        status_line = (
-            f"현재 표 {cur['total']}편 있음 (최저 {won(cur['min_price'])})"
-            if cur["available"] else "현재 표 없음 (아직 안 풀림)"
-        )
-        telegram(
-            f"✈️ <b>항공권 감시 시작</b>\n"
-            f"노선: {route_label()} · 편도 · 성인 {ADULT}\n"
-            f"날짜: {date_label()}\n"
-            f"{status_line}\n"
-            f"표가 풀리면 바로 알려드릴게요.\n"
-            f'<a href="{link}">네이버 항공에서 보기</a>'
-        )
-        print(f"[{ts}] first run — sent start notice. available={cur['available']}")
+        rows = []
+        for t in TARGETS:
+            r = results.get(key(t))
+            if not r:
+                rows.append(f"• {target_label(t)}: 조회실패")
+                continue
+            s = r[1]
+            rows.append(f"• {target_label(t)}: " + (f"{s['count']}편 최저 {won(s['min'])}" if s["count"] else "표없음"))
+        telegram("✈️ <b>항공권 감시 시작</b> (백업·15분 주기)\n" + "\n".join(rows) +
+                 "\n표가 뜨면 알립니다. (초단위 감시는 VM 스나이퍼)")
+        print(f"[{ts}] first run — sent start notice.")
 
-    elif cur["available"] and not prev.get("available"):
-        # 전이: 없음 -> 있음  (표 풀림!)
-        airlines = ", ".join(cur["airlines"]) if cur["airlines"] else "-"
-        telegram(
-            f"🎉 <b>항공권이 풀렸습니다!</b>\n"
-            f"노선: {route_label()} · 편도 · 성인 {ADULT}\n"
-            f"날짜: {date_label()}\n"
-            f"편수: {cur['total']}편 · 최저가: <b>{won(cur['min_price'])}</b>\n"
-            f"항공사: {airlines}\n"
-            f'👉 <a href="{link}">지금 네이버 항공에서 예약</a>'
-        )
-        print(f"[{ts}] ALERT sent — tickets opened. total={cur['total']} min={cur['min_price']}")
+    for k, (t, s) in results.items():
+        prev = state.get(k, {})
+        eff_avail = s["count"] > 0
+        if eff_avail and not prev.get("available") and not first_run:
+            alert_seat(t, s)
+            print(f"[{ts}] ALERT {k} count={s['count']} min={s['min']}")
+        state[k] = {"available": eff_avail, "count": s["count"], "min": s["min"], "checked_at_utc": ts}
 
-    else:
-        print(f"[{ts}] no change. available={cur['available']} total={cur['total']}")
-
-    save_state({
-        "available": cur["available"],
-        "total": cur["total"],
-        "min_price": cur["min_price"],
-        "airlines": cur["airlines"],
-        "per_dep": cur["per_dep"],
-        "checked_at_utc": ts,
-    })
+    save_state(state)
+    print(f"[{ts}] checked {len(results)}/{len(TARGETS)} targets.")
     return 0
 
 

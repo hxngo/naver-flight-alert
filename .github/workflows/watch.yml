@@ -29,11 +29,10 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # 감시 대상 변경 시 아래 주석 해제 후 수정
-          # WATCH_DATE: "20260924"
-          # WATCH_DEP: "GMP,ICN"
-          # WATCH_ARR: "CJU"
-          # WATCH_ADULT: "1"
+          # 감시 대상: "출발:날짜" 또는 "출발:날짜:시작-끝(HHMM 시간대)"
+          TARGETS: "GMP:20260924,ICN:20260924,GMP:20260923:1700-2359,ICN:20260923:1700-2359"
+          ARR: "CJU"
+          ADULT: "1"
         run: python check_flights.py
 
       - name: Persist state
