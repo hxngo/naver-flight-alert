@@ -1,17 +1,19 @@
 {
-  "available": false,
-  "total": 0,
-  "min_price": null,
-  "airlines": [],
+  "available": true,
+  "total": 1,
+  "min_price": 128500,
+  "airlines": [
+    "에어서울"
+  ],
   "per_dep": {
     "GMP": {
-      "count": 0,
-      "min": 0
+      "count": 1,
+      "min": 128500
     },
     "ICN": {
       "count": 0,
       "min": 0
     }
   },
-  "checked_at_utc": "2026-08-23 02:22:59"
+  "checked_at_utc": "2026-08-23 03:28:19"
 }
