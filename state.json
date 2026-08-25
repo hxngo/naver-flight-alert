@@ -15,27 +15,27 @@
   },
   "checked_at_utc": "2026-08-23 06:27:46",
   "GMP-CJU-20260924": {
-    "available": false,
-    "count": 0,
-    "min": 0,
-    "checked_at_utc": "2026-08-25 09:35:19"
+    "available": true,
+    "count": 1,
+    "min": 141500,
+    "checked_at_utc": "2026-08-25 10:05:13"
   },
   "ICN-CJU-20260924": {
     "available": false,
     "count": 0,
     "min": 0,
-    "checked_at_utc": "2026-08-25 09:35:19"
+    "checked_at_utc": "2026-08-25 10:05:13"
   },
   "GMP-CJU-20260923@1700-2359": {
     "available": false,
     "count": 0,
     "min": 0,
-    "checked_at_utc": "2026-08-25 09:35:19"
+    "checked_at_utc": "2026-08-25 10:05:13"
   },
   "ICN-CJU-20260923@1700-2359": {
     "available": false,
     "count": 0,
     "min": 0,
-    "checked_at_utc": "2026-08-25 09:35:19"
+    "checked_at_utc": "2026-08-25 10:05:13"
   }
 }
