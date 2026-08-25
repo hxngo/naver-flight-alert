@@ -17,25 +17,25 @@
   "GMP-CJU-20260924": {
     "available": true,
     "count": 1,
-    "min": 141500,
-    "checked_at_utc": "2026-08-25 10:05:13"
+    "min": 128400,
+    "checked_at_utc": "2026-08-25 10:48:05"
   },
   "ICN-CJU-20260924": {
     "available": false,
     "count": 0,
     "min": 0,
-    "checked_at_utc": "2026-08-25 10:05:13"
+    "checked_at_utc": "2026-08-25 10:48:05"
   },
   "GMP-CJU-20260923@1700-2359": {
     "available": false,
     "count": 0,
     "min": 0,
-    "checked_at_utc": "2026-08-25 10:05:13"
+    "checked_at_utc": "2026-08-25 10:48:05"
   },
   "ICN-CJU-20260923@1700-2359": {
     "available": false,
     "count": 0,
     "min": 0,
-    "checked_at_utc": "2026-08-25 10:05:13"
+    "checked_at_utc": "2026-08-25 10:48:05"
   }
 }
