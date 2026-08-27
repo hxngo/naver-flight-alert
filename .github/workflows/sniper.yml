@@ -1,0 +1,63 @@
+name: naver-sniper
+
+# 자기반복 스나이퍼: 한 번 뜨면 내부에서 30초마다 폴링하며 ~5h45m 돌고,
+# 끝나기 전에 스스로를 다시 트리거해 무한 지속. 취소표(0→N) 뜨면 텔레그램 즉시 알림.
+
+on:
+  workflow_dispatch: {}
+  # 안전망: VM/재실행 사슬이 끊겨도 3시간마다 부활 (GitHub 스케줄은 느슨함)
+  schedule:
+    - cron: "0 */3 * * *"
+
+permissions:
+  contents: write
+  actions: write     # 자기 자신 재트리거용
+
+concurrency:
+  group: naver-sniper
+  cancel-in-progress: false   # 겹치면 새 실행은 대기 → 중복 폴링 방지
+
+jobs:
+  snipe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355        # ~5h55m (GitHub job 최대 6h)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Run sniper window
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TARGETS: "GMP:20260924,ICN:20260924,GMP:20260923:1700-2359,ICN:20260923:1700-2359"
+          ARR: "CJU"
+          ADULT: "1"
+          POLL_INTERVAL: "30"
+          RUN_SECONDS: "20700"     # 5h45m, timeout 여유 두고 정상 종료
+          HEARTBEAT_HOURS: "0"     # 하트비트는 스나이퍼 내부 대신 여기선 끔
+        run: python gha_sniper.py
+
+      - name: Persist state
+        if: always()
+        run: |
+          if [[ -n "$(git status --porcelain gha_state.json)" ]]; then
+            git config user.name "sniper-bot"
+            git config user.email "actions@users.noreply.github.com"
+            git add gha_state.json
+            git commit -m "sniper state: $(date -u +%FT%TZ)"
+            git pull --rebase --autostash || true
+            git push || true
+          fi
+
+      - name: Re-trigger self (keep the chain alive)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run naver-sniper.yml --ref main || true
