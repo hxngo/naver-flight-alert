@@ -35,7 +35,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TARGETS: "GMP:20260924,ICN:20260924,GMP:20260923:1700-2359,ICN:20260923:1700-2359"
+          TARGETS: "GMP:20260923:1700-2359,ICN:20260923:1700-2359"
           ARR: "CJU"
           ADULT: "1"
           POLL_INTERVAL: "30"
@@ -60,4 +60,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh workflow run naver-sniper.yml --ref main || true
+          gh workflow run sniper.yml --ref main || true
