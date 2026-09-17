@@ -1,14 +1,14 @@
 {
   "GMP-CJU-20260923@1700-2359": {
-    "available": true,
-    "count": 1,
-    "min": 132800,
-    "checked_at_utc": "2026-09-17 01:45:31"
+    "available": false,
+    "count": 0,
+    "min": 0,
+    "checked_at_utc": "2026-09-17 07:15:33"
   },
   "ICN-CJU-20260923@1700-2359": {
     "available": false,
     "count": 0,
     "min": 0,
-    "checked_at_utc": "2026-09-17 01:45:31"
+    "checked_at_utc": "2026-09-17 07:15:33"
   }
 }
